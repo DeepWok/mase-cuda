@@ -1,0 +1,7 @@
+.cache/
+.vscode/
+build/
+.tox/
+.clangd
+UNKNOWN.egg-info/
+__pycache__/
