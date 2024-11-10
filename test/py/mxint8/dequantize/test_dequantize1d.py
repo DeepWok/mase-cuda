@@ -160,10 +160,10 @@ def test_ext_dequantize1d_latency():
             torch.cuda.synchronize()
             latencies_gpu = [start_events[i].elapsed_time(end_events[i]) for i in range(n_repeats)]
             latency_gpu = sum(latencies_gpu) / n_repeats / 1000  # ms -> s
-            results.append([m, group_size, latency_cpu, latency_gpu])
+            results.append([m, group_size, latency_cpu, latency_gpu, latency_cpu / latency_gpu])
 
-    headers = ["m", "group_size", "latency_cpu", "latency_gpu"]
-    logger.info(tabulate.tabulate(results, headers=headers, tablefmt="pretty", floatfmt=".3E"))
+    headers = ["m", "group_size", "latency_cpu", "latency_gpu", "GPU speedup"]
+    logger.info("\n{}".format(tabulate.tabulate(results, headers=headers, tablefmt="pretty", floatfmt=".3E")))
 
 
 if __name__ == "__main__":
