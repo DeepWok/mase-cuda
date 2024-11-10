@@ -15,6 +15,19 @@ target_include_directories(cutlass_util INTERFACE "${CUTLASS_DIR}/tools/util/inc
 add_library(cutlass_exp INTERFACE)
 target_include_directories(cutlass_exp INTERFACE "${CUTLASS_DIR}/examples/common")
 
+# python
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+include_directories("${Python3_INCLUDE_DIRS}")
+
+# torch
+# check if libtorch exists
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libtorch")
+  message(FATAL_ERROR "libtorch not found. Please run `just download-torchlib-if-not-exists`.")
+endif()
+list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libtorch")
+find_package(Torch REQUIRED)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+
 # json
 add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/submodules/nlohmann_json/single_include")
@@ -29,7 +42,9 @@ function(add_executable_test name)
   cmake_parse_arguments(PARSE_ARGV 1 arg "" "" ${multiValueArgs})
 
   add_executable(${name} ${arg_SRC})
-  target_link_libraries(${name} cutlass cutlass_util cutlass_exp nlohmann_json mase_cuda)
+  # add dependencies: cutlass, cutlass_util, cutlass_exp, python, libtorch, nlohmann_json, mase_cuda
+  target_link_libraries(${name} cutlass cutlass_util cutlass_exp ${Python3_LIBRARIES} ${TORCH_LIBRARIES} nlohmann_json mase_cuda)
+  set_property(TARGET ${name} PROPERTY CXX_STANDARD 17)
 
   # if NVCCGDB is set, add -g -G flags
   if(NVCCGDB)

@@ -3,5 +3,8 @@
 build/
 .tox/
 .clangd
-UNKNOWN.egg-info/
+*.egg-info/
 __pycache__/
+submodules/libtorch/
+submodules/libtorch.zip
+dist/

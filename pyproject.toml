@@ -1,0 +1,11 @@
+[build-system]
+    requires=["setuptools", "numpy", "torch"]
+    build-backend="setuptools.build_meta"
+
+[project]
+    authors=[{ name="Cheng Zhang", email="chengzhang98@outlook.com" }]
+    description="CUDA-accelerated extension for MASE"
+    name="mase-cuda"
+    version="0.0.1"
+    requires-python=">=3.11"
+    dependencies=["numpy", "torch"]

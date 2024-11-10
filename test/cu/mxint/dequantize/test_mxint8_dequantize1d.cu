@@ -17,8 +17,8 @@ int main(int argc, char **argv) {
     using namespace mase_cuda;
     using json = nlohmann::json;
 
-    const int m = 64 * 32;
-    const int group_size = 32;
+    const int m = 4096;
+    const int group_size = 128;
     const int num_groups = m / group_size;
 
     // initialize data
@@ -28,11 +28,13 @@ int main(int argc, char **argv) {
     thrust::host_vector<cutlass::bfloat16_t> y_ref_h(m);
 
     for (int i = 0; i < m; ++i) {
-        x_h[i] = (129 + i) % 256;
+        // x_h[i] = (129 + i) % 256;
+        x_h[i] = rand() % 256;
         y_h[i] = cutlass::bfloat16_t(0.0);
         y_ref_h[i] = cutlass::bfloat16_t(0.0);
         if (i % group_size == 0) {
-            scales_h[i / group_size] = (128 + i) % 256;
+            // scales_h[i / group_size] = (128 + i) % 256;
+            scales_h[i / group_size] = rand() % 256;
         }
     }
 
