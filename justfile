@@ -28,6 +28,9 @@ build-cu-test: clean download-torchlib-if-not-exists
 build-cu-test-gdb: clean download-torchlib-if-not-exists
     cmake -D BUILD_TESTING=ON -D CMAKE_CUDA_ARCHITECTURES={{CUDA_ARCHITECTURES}} -D NVCCGDB=ON -B build -S .
 
+build-cu-profile: clean download-torchlib-if-not-exists
+    cmake -D BUILD_PROFILING=ON -D CMAKE_CUDA_ARCHITECTURES={{CUDA_ARCHITECTURES}} -B build -S .
+
 # ==================== Python ====================
 build-py: clean download-torchlib-if-not-exists
     TORCH_CUDA_ARCH_LIST="{{TORCH_CUDA_ARCH_LIST}}" MAX_JOBS={{NINJA_MAX_JOBS}} tox -e build

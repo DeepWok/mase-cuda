@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
         y_ref_h[i] = cutlass::bfloat16_t(0.0);
         if (i % group_size == 0) {
             // scales_h[i / group_size] = (128 + i) % 256;
-            scales_h[i / group_size] = rand() % 256;
+            scales_h[i / group_size] = rand() % 255; // avoid 256 (NaN)
         }
     }
 
