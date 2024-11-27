@@ -1,0 +1,1 @@
+add_executable_nsight(nsight_mxint8_dequantize1d SRC "./profile_mxint8_dequantize1d.cu")

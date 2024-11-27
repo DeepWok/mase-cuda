@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.26)
 project(mase-cuda VERSION 0.1 LANGUAGES CUDA CXX)
 
 # print CUDA_ARCHITECTURES
@@ -24,6 +24,7 @@ include_directories("${Python3_INCLUDE_DIRS}")
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libtorch")
   message(FATAL_ERROR "libtorch not found. Please run `just download-torchlib-if-not-exists`.")
 endif()
+
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libtorch")
 find_package(Torch REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
@@ -42,6 +43,7 @@ function(add_executable_test name)
   cmake_parse_arguments(PARSE_ARGV 1 arg "" "" ${multiValueArgs})
 
   add_executable(${name} ${arg_SRC})
+
   # add dependencies: cutlass, cutlass_util, cutlass_exp, python, libtorch, nlohmann_json, mase_cuda
   target_link_libraries(${name} cutlass cutlass_util cutlass_exp ${Python3_LIBRARIES} ${TORCH_LIBRARIES} nlohmann_json mase_cuda)
   set_property(TARGET ${name} PROPERTY CXX_STANDARD 17)
@@ -52,7 +54,25 @@ function(add_executable_test name)
   endif()
 endfunction()
 
+# a function to add a cuda executable for nsight profiling
+function(add_executable_nsight name)
+  set(multiValueArgs SRC)
+  cmake_parse_arguments(PARSE_ARGV 1 arg "" "" ${multiValueArgs})
+
+  add_executable(${name} ${arg_SRC})
+
+  # add dependencies: cutlass, cutlass_util, cutlass_exp, python, libtorch, nlohmann_json, mase_cuda
+  target_link_libraries(${name} cutlass cutlass_util cutlass_exp ${Python3_LIBRARIES} ${TORCH_LIBRARIES} nlohmann_json mase_cuda)
+  set_property(TARGET ${name} PROPERTY CXX_STANDARD 17)
+
+  target_compile_options(${name} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
+endfunction()
+
 # add tests
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
   add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/test/cu")
+endif()
+
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_PROFILING)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/profile/cu")
 endif()

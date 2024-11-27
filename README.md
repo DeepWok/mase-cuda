@@ -10,10 +10,10 @@ This is the cuda extension for [DeepWok/MASE](https://github.com/DeepWok/mase).
 
 ## Env Setup
 
-- C++17
+- C++17 (GCC < 14)
 - CUDA 12.4/12.5/12.6
-- CMake 3.20+
-- Python 3.11 + [Tox](https://tox.wiki/en/latest/index.html)
+- CMake >= 3.20
+- Python >= 3.11 [Tox](https://tox.wiki/en/latest/index.html)
 - [Justfile](https://github.com/casey/just)
 
 ### C++/CUDA
@@ -22,7 +22,7 @@ This is the cuda extension for [DeepWok/MASE](https://github.com/DeepWok/mase).
 
 ```bash
 git submodule update --init
-just download-torchlib-if-not-exists
+just download-libtorch-if-not-exists
 ```
 
 2. Build Tests
