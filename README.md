@@ -8,23 +8,24 @@ This is the cuda extension for [DeepWok/MASE](https://github.com/DeepWok/mase).
 > [!NOTE]
 > [Beginner Guide](/docs/beginner.md) notes down my learning process and setup.
 
-## Env Setup
+## Conda Env Setup
 
 - C++17 (GCC < 14)
 - CUDA 12.4/12.5/12.6
 - CMake >= 3.20
 - Python >= 3.11 [Tox](https://tox.wiki/en/latest/index.html)
 - [Justfile](https://github.com/casey/just)
+- Torch >= 2.3.0 (`pip install torch` in conda env). C++ test requires LibTorch that comes with PyTorch.
+
 
 ### C++/CUDA
 
 #### Build
 
-1. Submodules and LibTorch
+1. Submodules
 
 ```bash
 git submodule update --init
-just download-libtorch-if-not-exists
 ```
 
 2. Build Tests
