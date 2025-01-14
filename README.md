@@ -18,6 +18,8 @@ This is the cuda extension for [DeepWok/MASE](https://github.com/DeepWok/mase).
 
 ### C++/CUDA
 
+#### Build
+
 1. Submodules and LibTorch
 
 ```bash
@@ -30,6 +32,21 @@ just download-libtorch-if-not-exists
 ```bash
 just build-cu-test
 ```
+
+3. Build Profiling for NSight Compute
+
+```bash
+just build-cu-profile
+```
+
+#### Build Specific Target
+
+- Build `test_mxint8_dequantize1d_fast` for debug and launch cuda-gdb for debugging
+  ```bash
+  just --set CU_BUILD_TARGETS test_mxint8_dequantize1d_fast build-cu-test-debug
+  cuda-gdb --args ./build/test/cu/mxint/dequantize/test_mxint8_dequantize1d_fast  30000 30
+  ```
+
 
 ### Python
 
