@@ -20,12 +20,13 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 include_directories("${Python3_INCLUDE_DIRS}")
 
 # torch
-# check if libtorch exists
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libtorch")
-  message(FATAL_ERROR "libtorch not found. Please run `just download-torchlib-if-not-exists`.")
-endif()
-
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libtorch")
+# add libtorch by executing 'import torch; print(torch.utils.cmake_prefix_path)'
+execute_process(
+  COMMAND python3 -c "import torch; print(torch.utils.cmake_prefix_path)"
+  OUTPUT_VARIABLE Torch_DIR
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+list(APPEND CMAKE_PREFIX_PATH "${Torch_DIR}")
 find_package(Torch REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 

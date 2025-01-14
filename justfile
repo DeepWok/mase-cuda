@@ -15,13 +15,6 @@ clean:
     # all
     if [ -d {{project_dir}}/build ]; then rm -r {{project_dir}}/build; fi
 
-clean-all: clean
-    if [ -d {{project_dir}}/submodules/libtorch ]; then rm -r {{project_dir}}/submodules/libtorch; fi
-    if [ -f {{project_dir}}/submodules/libtorch.zip ]; then rm {{project_dir}}/submodules/libtorch.zip; fi
-
-download-libtorch-if-not-exists:
-    if [ ! -d {{project_dir}}/submodules/libtorch ]; then curl -L {{libtorch_url}} -o {{project_dir}}/submodules/libtorch.zip; unzip {{project_dir}}/submodules/libtorch.zip -d {{project_dir}}/submodules; else echo "libtorch already exists"; fi
-
 # ==================== C++ ======================
 [private]
 cmake-build:
@@ -31,18 +24,18 @@ cmake-build:
         cmake --build {{project_dir}}/build --target {{CU_BUILD_TARGETS}} -j {{CMAKE_MAX_JOBS}} ; \
     fi
 
-build-cu-test: clean download-libtorch-if-not-exists && cmake-build
+build-cu-test: clean && cmake-build
     echo $(which cmake)
     cmake -D BUILD_TESTING=ON -D CUDA_ARCHITECTURES={{CUDA_ARCHITECTURES}} -B build -S .
 
-build-cu-test-debug: clean download-libtorch-if-not-exists && cmake-build
+build-cu-test-debug: clean && cmake-build
     cmake -D BUILD_TESTING=ON -D CUDA_ARCHITECTURES={{CUDA_ARCHITECTURES}} -D NVCCGDB=ON -B build -S .
 
-build-cu-profile: clean download-libtorch-if-not-exists && cmake-build
+build-cu-profile: clean && cmake-build
     cmake -D BUILD_PROFILING=ON -D CUDA_ARCHITECTURES={{CUDA_ARCHITECTURES}} -B build -S .
 
 # ==================== Python ====================
-build-py: clean download-libtorch-if-not-exists
+build-py: clean
     TORCH_CUDA_ARCH_LIST="{{TORCH_CUDA_ARCH_LIST}}" MAX_JOBS={{NINJA_MAX_JOBS}} tox -e build
 
 test-py-fast:
