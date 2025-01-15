@@ -14,7 +14,7 @@
 #pragma once
 namespace mase_cuda {
 namespace mxint8 {
-namespace dequantize {
+namespace dequantize_slow {
 template <class TypeX,                              // input type
           class ShapeX,                             // input/output shape
           class StrideX,                            // input/output stride
@@ -282,6 +282,6 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
 
     return y;
 }
-} // namespace dequantize
+} // namespace dequantize_slow
 } // namespace mxint8
 } // namespace mase_cuda

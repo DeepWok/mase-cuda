@@ -1,4 +1,4 @@
-#include "mxint/dequantize.cuh"
+#include "mxint/dequantize_slow.cuh"
 #include <cstdint>
 #include <cuda.h>
 #include <cuda_runtime_api.h>
@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
     }
 
     // CPU implementation
-    mase_cuda::mxint8::dequantize::dequantize1d_host(x_h.data(), m, scales_h.data(), group_size, y_ref_h.data());
+    mase_cuda::mxint8::dequantize_slow::dequantize1d_host(x_h.data(), m, scales_h.data(), group_size, y_ref_h.data());
 
     // GPU implementation
     auto BLK_M = Int<8>{};
@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
 
     dim3 dimBlock(size(layout_tX));
     dim3 dimGrid(size(ceil_div(group_size, BLK_M)));
-    mase_cuda::mxint8::dequantize::dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(
+    mase_cuda::mxint8::dequantize_slow::dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(
         x_d.data().get(), shape_x, stride_x, scales_d.data().get(), shape_scale, stride_scale, group_tiler, cta_tiler,
         layout_sX, layout_sScale, layout_tX, y_d.data().get());
 

@@ -107,8 +107,8 @@ int main(int argc, char **argv) {
     }
 
     if (passed) {
-        std::cout << "Test passed" << std::endl;
+        std::cout << "PASSED" << std::endl;
     } else {
-        std::cout << "Test failed" << std::endl;
+        std::cout << "FAILED" << std::endl;
     }
 }

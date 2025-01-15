@@ -2,8 +2,8 @@ import torch
 import mase_cuda_ext
 
 
-def dequantize1d(input: torch.Tensor, scale: torch.Tensor, group_size: int) -> torch.Tensor:
-    return mase_cuda_ext.mxint8.dequantize1d(input, scale, group_size)
+def dequantize1d_slow(input: torch.Tensor, scale: torch.Tensor, group_size: int) -> torch.Tensor:
+    return mase_cuda_ext.mxint8.dequantize1d_slow(input, scale, group_size)
 
 
 def dequantize1d_fast(input: torch.Tensor, scale: torch.Tensor, group_size: int) -> torch.Tensor:
