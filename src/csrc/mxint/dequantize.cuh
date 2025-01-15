@@ -71,6 +71,10 @@ __global__ static void dequantize1d_device(TypeX const *x, ShapeX shape_x, Strid
     Tensor vScale = make_tensor(make_gmem_ptr(scales_raw_uint8), shape_scale, stride_scale); // (num_groups,)
     Tensor mY = make_tensor(make_gmem_ptr(y), shape(mX), stride(mX)); // (_group_size, num_groups):(_1, _group_size)
 
+    // predicate
+    auto m_max_coord = size<0>(mX) - blockIdx.x * size<0>(cta_tiler);
+    auto k_max_coord = size<1>(mX) - blockIdx.y * size<1>(cta_tiler);
+
     auto cta_coord = make_coord(blockIdx.x, blockIdx.y);
     Tensor gX = local_tile(mX, cta_tiler, cta_coord);                               // (BLK_M, BLK_K)
     Tensor gScale = local_tile(vScale, select<1>(cta_tiler), select<1>(cta_coord)); // (BLK_K,)
@@ -89,18 +93,32 @@ __global__ static void dequantize1d_device(TypeX const *x, ShapeX shape_x, Strid
     Tensor tXgY = local_partition(gY, layout_tX, threadIdx.x); // (thd_m, thd_k)
     Tensor tXrY = make_tensor_like(tXgY);                      // (thd_m, thd_k)
 
+    // predicate
+    Tensor cX = make_identity_tensor(shape(sX));               // (BLK_M, BLK_K)
+    Tensor tXcX = local_partition(cX, layout_sX, threadIdx.x); // (thd_m, thd_k)
+    Tensor tXpX = make_tensor<bool>(shape(tXgX));              // (thd_m, thd_k)
+
+    CUTE_UNROLL
+    for (int i = 0; i < size(tXsX); ++i) {
+        tXpX[i] = elem_less(tXcX[i], make_coord(m_max_coord, k_max_coord));
+    }
+
     clear(tXrY);
 
     // copy
     // copy Scale
-    if (threadIdx.x < size(select<1>(cta_tiler))) {
+    // if (threadIdx.x < size(select<1>(cta_tiler))) {
+    //     sScale[threadIdx.x] = gScale[threadIdx.x];
+    // }
+    if (threadIdx.x < min(size<1>(cta_tiler), k_max_coord)) {
         sScale[threadIdx.x] = gScale[threadIdx.x];
     }
     // copy X
-    CUTE_UNROLL
-    for (int i = 0; i < size(tXgX); ++i) {
-        tXsX[i] = tXgX[i];
-    }
+    // CUTE_UNROLL
+    // for (int i = 0; i < size(tXgX); ++i) {
+    //     tXsX[i] = tXgX[i];
+    // }
+    copy_if(tXpX, tXgX, tXsX);
 
     cp_async_fence();
     cp_async_wait<0>();
@@ -117,10 +135,11 @@ __global__ static void dequantize1d_device(TypeX const *x, ShapeX shape_x, Strid
     }
 
     // copy back
-    CUTE_UNROLL
-    for (int i = 0; i < size(tXrY); ++i) {
-        tXgY[i] = tXrY[i];
-    }
+    // CUTE_UNROLL
+    // for (int i = 0; i < size(tXrY); ++i) {
+    //     tXgY[i] = tXrY[i];
+    // }
+    copy_if(tXpX, tXrY, tXgY);
 }
 
 torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int group_size) {
