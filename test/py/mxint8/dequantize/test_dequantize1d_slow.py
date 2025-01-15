@@ -8,7 +8,7 @@ import ml_dtypes
 import torch
 from mase_cuda.constants import MASE_CUDA_ROOT_PATH
 
-from mase_cuda.mxint8.dequantize import dequantize1d
+from mase_cuda.mxint8.dequantize import dequantize1d_slow
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,37 @@ def compose_mxint8_exp_mantissa_np(scale: np.ndarray, mantissa: np.ndarray):
     mxint8 = mxint8.view(ml_dtypes.bfloat16)
 
     return mxint8
+
+
+@pytest.mark.skipif(
+    not MASE_CUDA_ROOT_PATH.joinpath("build/test/cu/mxint/dequantize/dequantize1d.json").exists(),
+    reason="dequantize1d.json not found. Run the cpp test first.",
+)
+def test_cpp_compose_mxint8_exp_mantissa():
+    json_path = MASE_CUDA_ROOT_PATH.joinpath("build/test/cu/mxint/dequantize/dequantize1d.json").resolve()
+    if not json_path.exists():
+        logger.warning(f"test_compose_mxint8_exp_mantissa: {json_path} not found. Skip test.")
+        return
+
+    with open(json_path, "r") as f:
+        de_j = json.load(f)
+
+    mantissa = np.array(de_j["x"], dtype=np.uint8)
+    scale = np.array(de_j["scales"], dtype=np.uint8)
+    out_cuda = np.array(de_j["y_cuda"], dtype=np.float32)
+    out_cpu = np.array(de_j["y_cpu"], dtype=np.float32)
+
+    out_ref = compose_mxint8_exp_mantissa_np(scale, mantissa)
+    out_ref = out_ref.astype(np.float32)
+
+    # find mismatch
+    idx_cuda_ref_ne = np.where(out_cuda != out_ref)
+    idx_cpu_ref_ne = np.where(out_cpu != out_ref)
+
+    assert len(idx_cuda_ref_ne[0]) == 0
+    assert len(idx_cpu_ref_ne[0]) == 0
+
+    logger.info("test_compose_mxint8_exp_mantissa: PASS")
 
 
 def dequantize1d_fake_pt(x: torch.Tensor, scales: torch.Tensor, group_size: int) -> torch.Tensor:
@@ -67,7 +98,7 @@ def test_ext_dequantize1d():
                 scales_dup = scales.repeat_interleave(group_size)
 
                 # view as uint16 to avoid NaN comparison
-                out_cpu = dequantize1d(x, scales, group_size)
+                out_cpu = dequantize1d_slow(x, scales, group_size)
                 out_ref = dequantize1d_fake_pt(x, scales, group_size)
 
                 # find mismatch idx
@@ -80,7 +111,7 @@ def test_ext_dequantize1d():
                     logger.error(f"out_cpu[mismatch_idx]: {out_cpu[mismatch_idx]}")
                     logger.error(f"out_ref[mismatch_idx]: {out_ref[mismatch_idx]}")
 
-                out_gpu = dequantize1d(x.cuda(), scales.cuda(), group_size).cpu()
+                out_gpu = dequantize1d_slow(x.cuda(), scales.cuda(), group_size).cpu()
 
                 if not torch.equal(out_gpu, out_ref):
                     mismatch_idx = torch.where(torch.logical_not(torch.eq(out_gpu, out_ref)))
@@ -114,7 +145,7 @@ def test_ext_dequantize1d_latency():
             # cpu
             start = time.time()
             for _ in range(n_repeats):
-                out_cpu = dequantize1d(x, scales, group_size)
+                out_cpu = dequantize1d_slow(x, scales, group_size)
             end = time.time()
             latency_cpu = (end - start) / n_repeats  # s
 
@@ -125,7 +156,7 @@ def test_ext_dequantize1d_latency():
             end_events = [torch.cuda.Event(enable_timing=True) for _ in range(n_repeats)]
             for i in range(n_repeats):
                 start_events[i].record()
-                out_gpu = dequantize1d(x, scales, group_size)
+                out_gpu = dequantize1d_slow(x, scales, group_size)
                 end_events[i].record()
             torch.cuda.synchronize()
             latencies_gpu = [start_events[i].elapsed_time(end_events[i]) for i in range(n_repeats)]
@@ -137,6 +168,5 @@ def test_ext_dequantize1d_latency():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    test_cpp_compose_mxint8_exp_mantissa()
     test_ext_dequantize1d()
-    test_ext_dequantize1d_latency()

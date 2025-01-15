@@ -1,8 +1,8 @@
 #include "c10/core/ScalarType.h"
 #include "c10/core/TensorOptions.h"
-#include "cute/arch/copy_sm80.hpp"
-#include "cute/config.hpp"
 #include "cute/pointer.hpp"
+#include "cute/pointer_flagged.hpp"
+#include "torch/types.h"
 #include <cassert>
 #include <cstdint>
 #include <cute/layout.hpp>
@@ -13,10 +13,9 @@
 #include <thrust/host_vector.h>
 #include <torch/extension.h>
 #pragma once
-
 namespace mase_cuda {
 namespace mxint8 {
-namespace dequantize {
+namespace dequantize_slow {
 template <class TypeX, class TypeScale>
 __host__ void dequantize1d_host(TypeX const *x, const int M, TypeScale const *scales, const int group_size,
                                 cutlass::bfloat16_t *y) {
@@ -35,7 +34,6 @@ __host__ void dequantize1d_host(TypeX const *x, const int M, TypeScale const *sc
         y[i] = cutlass::bfloat16_t::bitcast(sign | exp | mantissa);
     }
 }
-
 template <class TypeX,                              // input type
           class ShapeX,                             // input/output shape
           class StrideX,                            // input/output stride
@@ -51,92 +49,113 @@ __global__ static void dequantize1d_device(TypeX const *x, ShapeX shape_x, Strid
                                            GroupTiler group_tiler, // scale
                                            CtaTiler cta_tiler, SmemLayoutX layout_sX, SmemLayoutScale layout_sScale,
                                            ThreadLayoutX layout_tX, // cuda
-                                           cutlass::bfloat16_t *y) {
+                                           cutlass::bfloat16_t *y   // output
+) {
     using namespace cute;
 
-    CUTE_STATIC_ASSERT_V(rank(shape_x) == Int<1>{});
-    CUTE_STATIC_ASSERT_V(rank(shape_scale) == Int<1>{});
-    CUTE_STATIC_ASSERT_V(rank(group_tiler) == Int<1>{});
-    CUTE_STATIC_ASSERT_V(rank(cta_tiler) == Int<2>{});
+    CUTE_STATIC_ASSERT_V(rank(shape_x) == Int<1>{});     // 1D tensor
+    CUTE_STATIC_ASSERT_V(rank(shape_scale) == Int<1>{}); // 1D tensor
+    CUTE_STATIC_ASSERT_V(rank(group_tiler) == Int<1>{}); // 1D tensor
+    CUTE_STATIC_ASSERT_V(rank(cta_tiler) == Int<2>{});   // (BLK_M, BLK_K)
 
     static_assert(is_static<ThreadLayoutX>::value);
     static_assert(is_static<SmemLayoutX>::value);
     static_assert(is_static<SmemLayoutScale>::value);
 
+    // assert(size<0>(shape_x) % size<0>(group_tiler) == 0);
+    // assert(size<0>(shape_x) / size<0>(group_tiler) == size<0>(shape_scale));
+
+    // represent full tensor and scale in global memory
+    // input tensor, shape: (M)
     uint8_t const *x_raw_uint8 = reinterpret_cast<uint8_t const *>(x);
     uint8_t const *scales_raw_uint8 = reinterpret_cast<uint8_t const *>(scales);
     Tensor mX_raw = make_tensor(make_gmem_ptr(x_raw_uint8), shape_x, stride_x);
-    Tensor mX = flatten(flat_divide(mX_raw, group_tiler)); // (_group_size, num_groups):(_1, _group_size)
-    Tensor vScale = make_tensor(make_gmem_ptr(scales_raw_uint8), shape_scale, stride_scale); // (num_groups,)
-    Tensor mY = make_tensor(make_gmem_ptr(y), shape(mX), stride(mX)); // (_group_size, num_groups):(_1, _group_size)
+    // divide by group size, (_group_size, num_groups): (_1, _group_size)
+    Tensor mX = flatten(flat_divide(mX_raw, group_tiler));
+    // scale tensor in global memory, shape: (num_groups): (1)
+    Tensor vScale = make_tensor(make_gmem_ptr(scales_raw_uint8), shape_scale, stride_scale);
+    // (_group_size, num_groups): (_1, _group_size)
+    Tensor mY = make_tensor(make_gmem_ptr(y), shape(mX), stride(mX));
 
-    auto cta_coord = make_coord(blockIdx.x, blockIdx.y);
-    Tensor gX = local_tile(mX, cta_tiler, cta_coord);                               // (BLK_M, BLK_K)
-    Tensor gScale = local_tile(vScale, select<1>(cta_tiler), select<1>(cta_coord)); // (BLK_K,)
-    Tensor gY = local_tile(mY, cta_tiler, cta_coord);                               // (BLK_M, BLK_K)
+    // get the appropriate block for this thread block
+    auto cta_coord = make_coord(blockIdx.x, _);
+    // gX: (BLK_M, BLK_K, num_blks_k), this num_blks_k is for temporal iteration
+    Tensor gX = local_tile(mX, cta_tiler, cta_coord);
+    // gScale: (BLK_N, num_blks_k)
+    Tensor gScale = local_tile(vScale, select<1>(cta_tiler), select<1>(cta_coord));
+    // gY: (BLK_M, BLK_K, num_blks_k)
+    Tensor gY = local_tile(mY, cta_tiler, cta_coord);
 
-    __shared__ uint8_t smemX[size(cta_tiler)];
-    __shared__ uint8_t smemScale[size(select<1>(cta_tiler))];
-
+    // create shared memory for input and scale
+    __shared__ uint8_t smemX[size(cta_tiler)];                                   // (BLK_M, BLK_K)
+    __shared__ uint8_t smemScale[size(select<1>(cta_tiler))];                    // (BLK_K)
     Tensor sX = make_tensor(make_smem_ptr(smemX), cta_tiler);                    // (BLK_M, BLK_K)
-    Tensor sScale = make_tensor(make_smem_ptr(smemScale), select<1>(cta_tiler)); // (BLK_K,)
+    Tensor sScale = make_tensor(make_smem_ptr(smemScale), select<1>(cta_tiler)); // (BLK_K)
 
     // partition copy
-    Tensor tXgX = local_partition(gX, layout_tX, threadIdx.x); // (thd_m, thd_k)
-    Tensor tXsX = local_partition(sX, layout_sX, threadIdx.x); // (thd_m, thd_k)
+    Tensor tXgX = local_partition(gX, layout_tX, threadIdx.x); // (thd_m, thd_k, num_blks_k), thd_k = 1
+    Tensor tXsX = local_partition(sX, layout_tX, threadIdx.x); // (thd_m, thd_k)
 
-    Tensor tXgY = local_partition(gY, layout_tX, threadIdx.x); // (thd_m, thd_k)
-    Tensor tXrY = make_tensor_like(tXgY);                      // (thd_m, thd_k)
+    Tensor tXgY = local_partition(gY, layout_tX, threadIdx.x); // (thd_m, thd_k, num_blks_k), bf16
+    Tensor tXrY = make_tensor_like(tXgY(_, _, 0));             // (thd_m, thd_k), bf16
 
+    auto K_TILE_MAX = size<2>(tXgX);
     clear(tXrY);
+    // iterate over num_blks_k
+    for (int k = 0; k < K_TILE_MAX; ++k) {
+        // copy from global to shared
+        Tensor tXgXk = tXgX(_, _, k);
+        Tensor gScalek = gScale(_, k);
 
-    // copy
-    // copy Scale
-    if (threadIdx.x < size(select<1>(cta_tiler))) {
-        sScale[threadIdx.x] = gScale[threadIdx.x];
-    }
-    // copy X
-    CUTE_UNROLL
-    for (int i = 0; i < size(tXgX); ++i) {
-        tXsX[i] = tXgX[i];
-    }
+        // copy Scale
+        if (threadIdx.x % size<0>(layout_tX) == 0) {
+            sScale[threadIdx.x / size<0>(layout_tX)] = gScalek[threadIdx.x / size<0>(layout_tX)];
+        }
 
-    cp_async_fence();
-    cp_async_wait<0>();
-    __syncthreads();
+        CUTE_UNROLL
+        for (int i = 0; i < size(tXsX); ++i) {
+            tXsX[i] = tXgXk[i];
+        }
+        cp_async_fence();
+        cp_async_wait<0>();
+        __syncthreads();
 
-    // dequantize
-    CUTE_UNROLL
-    for (int i = 0; i < size(tXrY); ++i) {
-        auto scaleIdx = threadIdx.x / size<0>(layout_tX);
-        auto exp = static_cast<uint16_t>(sScale[scaleIdx]) << 7;
-        auto sign = static_cast<uint16_t>(tXsX[i] & 0x80) << 8;
-        auto mantissa = static_cast<uint16_t>((tXsX[i] << 1) & 0x7E);
-        tXrY[i] = cutlass::bfloat16_t::bitcast(sign | exp | mantissa);
-    }
-
-    // copy back
-    CUTE_UNROLL
-    for (int i = 0; i < size(tXrY); ++i) {
-        tXgY[i] = tXrY[i];
+        CUTE_UNROLL
+        for (int i = 0; i < size(tXrY); ++i) {
+            auto scaleIdx = threadIdx.x / size<0>(layout_tX);
+            auto sign = static_cast<uint16_t>(tXsX[i] & 0x80) << 8;
+            auto exp = static_cast<uint16_t>(sScale[scaleIdx]) << 7;
+            auto mantissa = static_cast<uint16_t>((tXsX[i] << 1) & 0x7E);
+            tXrY[i] = cutlass::bfloat16_t::bitcast(sign | exp | mantissa);
+        }
+        // copy the dequantized value to global memory
+        Tensor tXgYk = tXgY(_, _, k);
+        CUTE_UNROLL
+        for (int i = 0; i < size(tXrY); ++i) {
+            tXgYk[i] = tXrY[i];
+        }
     }
 }
 
 torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int group_size) {
     using namespace cute;
-    const int legal_group_sizes[] = {8, 16, 32, 64, 128, 256, 512, 1024};
-    std::set<int> group_sizes(legal_group_sizes,
-                              legal_group_sizes + sizeof(legal_group_sizes) / sizeof(legal_group_sizes[0]));
+    const int available_group_sizes[] = {8, 16, 32, 64, 128, 256, 512};
+    std::set<int> group_sizes(available_group_sizes, available_group_sizes + 7);
     if (group_sizes.find(group_size) == group_sizes.end()) {
-        throw std::invalid_argument("group_size must be one of {16, 32, 64, 128, 256, 512, 1024}");
+        throw std::invalid_argument("group_size not supported, must be one of {8, 16, 32, 64, 128, 256, 512}");
     }
-    const int m = x.numel() * x.itemsize() / sizeof(uint8_t);
+    // infer number of elements in x
+    const int m = x.numel() * x.itemsize() / sizeof(torch::kUInt8);
     const int num_groups = m / group_size;
+    // check arguments
     if (m % group_size != 0) {
-        throw std::invalid_argument("m must be divisible by group_size");
+        throw std::invalid_argument("m %% group_size != 0");
+    }
+    if (num_groups != scales.numel() * scales.itemsize() / sizeof(torch::kUInt8)) {
+        throw std::invalid_argument("m / group_size != num scale elements");
     }
     if (x.device() != scales.device()) {
-        throw std::invalid_argument("x and scales must be on the same device");
+        throw std::invalid_argument("x.device() != scales.device()");
     }
 
     auto y_options = torch::TensorOptions().device(x.device()).dtype(torch::kBFloat16);
@@ -144,6 +163,7 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
 
     auto _x = x.contiguous();
     auto _scales = scales.contiguous();
+    // auto _y = y.contiguous();
 
     auto x_ptr = _x.const_data_ptr();
     auto scales_ptr = _scales.const_data_ptr();
@@ -152,105 +172,115 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
     if (_x.device().is_cpu()) {
         dequantize1d_host(x_ptr, m, scales_ptr, group_size, y_ptr);
     } else if (_x.device().is_cuda()) {
+        // determining BLK_M, BLK_K
+        // 32 threads per warp, warp load size: 32, 64, 128 bytes
         auto shape_x = make_shape(m);
         auto stride_x = make_stride(Int<1>{});
         auto shape_scale = make_shape(num_groups);
         auto stride_scale = make_stride(Int<1>{});
         auto group_tiler = make_shape(group_size);
 
-        if (group_size <= 8) {
+        if (group_size == 8) {
             auto BLK_M = Int<8>{};
             auto BLK_K = Int<128>{};
-            auto thd_m = BLK_M;
-            auto thd_k = BLK_K;
+            auto THD_M = Int<8>{};
             auto cta_tiler = make_shape(BLK_M, BLK_K);
             auto layout_sX = make_layout(make_shape(BLK_M, BLK_K));
             auto layout_sScale = make_layout(make_shape(BLK_K));
-            auto layout_tX = make_layout(make_shape(thd_m, thd_k));
+            auto layout_tX = make_layout(make_shape(THD_M, BLK_K));
             dim3 dimBlock(size(layout_tX));
-            dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
+            dim3 dimGrid(size(ceil_div(group_size, BLK_M)));
             dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
                                                              stride_scale, group_tiler, cta_tiler, layout_sX,
                                                              layout_sScale, layout_tX, y_ptr);
-        } else if (group_size <= 16) {
+        } else if (group_size == 16) {
             auto BLK_M = Int<16>{};
             auto BLK_K = Int<64>{};
-            auto thd_m = BLK_M;
-            auto thd_k = BLK_K;
+            auto THD_M = Int<16>{};
             auto cta_tiler = make_shape(BLK_M, BLK_K);
             auto layout_sX = make_layout(make_shape(BLK_M, BLK_K));
             auto layout_sScale = make_layout(make_shape(BLK_K));
-            auto layout_tX = make_layout(make_shape(thd_m, thd_k));
+            auto layout_tX = make_layout(make_shape(THD_M, BLK_K));
             dim3 dimBlock(size(layout_tX));
-            dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
+            dim3 dimGrid(size(ceil_div(group_size, BLK_M)));
             dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
                                                              stride_scale, group_tiler, cta_tiler, layout_sX,
                                                              layout_sScale, layout_tX, y_ptr);
-        } else if (group_size <= 32) {
+        } else if (group_size == 32) {
             auto BLK_M = Int<32>{};
             auto BLK_K = Int<32>{};
-            auto thd_m = BLK_M;
-            auto thd_k = BLK_K;
+            auto THD_M = Int<32>{};
             auto cta_tiler = make_shape(BLK_M, BLK_K);
             auto layout_sX = make_layout(make_shape(BLK_M, BLK_K));
             auto layout_sScale = make_layout(make_shape(BLK_K));
-            auto layout_tX = make_layout(make_shape(thd_m, thd_k));
+            auto layout_tX = make_layout(make_shape(THD_M, BLK_K));
             dim3 dimBlock(size(layout_tX));
-            dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
+            dim3 dimGrid(size(ceil_div(group_size, BLK_M)));
             dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
                                                              stride_scale, group_tiler, cta_tiler, layout_sX,
                                                              layout_sScale, layout_tX, y_ptr);
-        } else if (group_size <= 64) {
+        } else if (group_size == 64) {
             auto BLK_M = Int<64>{};
             auto BLK_K = Int<16>{};
-            auto thd_m = BLK_M;
-            auto thd_k = BLK_K;
+            auto THD_M = Int<64>{};
             auto cta_tiler = make_shape(BLK_M, BLK_K);
             auto layout_sX = make_layout(make_shape(BLK_M, BLK_K));
             auto layout_sScale = make_layout(make_shape(BLK_K));
-            auto layout_tX = make_layout(make_shape(thd_m, thd_k));
+            auto layout_tX = make_layout(make_shape(THD_M, BLK_K));
             dim3 dimBlock(size(layout_tX));
-            dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
+            dim3 dimGrid(size(ceil_div(group_size, BLK_M)));
             dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
                                                              stride_scale, group_tiler, cta_tiler, layout_sX,
                                                              layout_sScale, layout_tX, y_ptr);
-        } else if (group_size <= 128) {
+        } else if (group_size == 128) {
             auto BLK_M = Int<128>{};
             auto BLK_K = Int<8>{};
-            auto thd_m = BLK_M;
-            auto thd_k = BLK_K;
+            auto THD_M = Int<64>{};
             auto cta_tiler = make_shape(BLK_M, BLK_K);
             auto layout_sX = make_layout(make_shape(BLK_M, BLK_K));
             auto layout_sScale = make_layout(make_shape(BLK_K));
-            auto layout_tX = make_layout(make_shape(thd_m, thd_k));
+            auto layout_tX = make_layout(make_shape(THD_M, BLK_K));
             dim3 dimBlock(size(layout_tX));
-            dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
+            dim3 dimGrid(size(ceil_div(group_size, BLK_M)));
+            dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
+                                                             stride_scale, group_tiler, cta_tiler, layout_sX,
+                                                             layout_sScale, layout_tX, y_ptr);
+
+        } else if (group_size == 256) {
+            // group_size == 256
+            auto BLK_M = Int<256>{};
+            auto BLK_K = Int<4>{};
+            auto THD_M = Int<128>{};
+            auto cta_tiler = make_shape(BLK_M, BLK_K);
+            auto layout_sX = make_layout(make_shape(BLK_M, BLK_K));
+            auto layout_sScale = make_layout(make_shape(BLK_K));
+            auto layout_tX = make_layout(make_shape(THD_M, BLK_K));
+            dim3 dimBlock(size(layout_tX));
+            dim3 dimGrid(size(ceil_div(group_size, BLK_M)));
             dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
                                                              stride_scale, group_tiler, cta_tiler, layout_sX,
                                                              layout_sScale, layout_tX, y_ptr);
         } else {
-            // 256, 512, 1024
-            auto BLK_M = Int<128>{};
-            auto BLK_K = Int<8>{};
-            auto thd_m = BLK_M;
-            auto thd_k = BLK_K;
+            // group_size == 512
+            auto BLK_M = Int<256>{};
+            auto BLK_K = Int<4>{};
+            auto THD_M = Int<128>{};
             auto cta_tiler = make_shape(BLK_M, BLK_K);
             auto layout_sX = make_layout(make_shape(BLK_M, BLK_K));
             auto layout_sScale = make_layout(make_shape(BLK_K));
-            auto layout_tX = make_layout(make_shape(thd_m, thd_k));
+            auto layout_tX = make_layout(make_shape(THD_M, BLK_K));
             dim3 dimBlock(size(layout_tX));
-            dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
+            dim3 dimGrid(size(ceil_div(group_size, BLK_M)));
             dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
                                                              stride_scale, group_tiler, cta_tiler, layout_sX,
                                                              layout_sScale, layout_tX, y_ptr);
         }
     } else {
-        throw std::invalid_argument("x must be on CPU or CUDA");
+        throw std::invalid_argument("x.device() not supported");
     }
 
-    y = y.reshape_as(x);
     return y;
 }
-} // namespace dequantize
+} // namespace dequantize_slow
 } // namespace mxint8
 } // namespace mase_cuda

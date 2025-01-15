@@ -1,1 +1,1 @@
-from mase_cuda_ext.mxint8.dequantize import dequantize1d
+# from mase_cuda_ext.mxint8.dequantize import dequantize1d
