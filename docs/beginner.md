@@ -5,16 +5,34 @@ This repo assumes that you have basic knowledge of the following:
 - Git
 - Bash
 - Python
+- Conda
 - PyTorch
 - C++
-- CMakes
+- CMake
+
+## Env Setup
+
+You may set up the environment using conda only.
+- [C++17 (G++ < 14)](https://anaconda.org/conda-forge/gxx)
+- [CUDA Toolkit 12.4/12.5/12.6](https://anaconda.org/nvidia/cuda-toolkit)
+- [CMake >= 3.20](https://anaconda.org/conda-forge/cmake)
+- Python >= 3.11
+- [Justfile](https://anaconda.org/conda-forge/just)
+
+Assuming the conda environment is named `mase-cuda` and has the above tools installed, you may install the following packages using pip in `mase-cuda`:
+
+```bash
+conda activate mase-cuda
+pip install tox torch
+```
+
+Tox is used for testing the Python code and building the `mase_cuda` package in a virtual Python environment. C++ tests require LibTorch that comes with PyTorch.
 
 ## IDE Setup
 
 - C++ Language Server: [Clangd](https://clangd.llvm.org/) is recommended. VSCode has a good [extension](https://marketplace.visualstudio.com/items?itemName=llvm-vs-code-extensions.vscode-clangd) for it. Clangd is faster than VSCode's official C++ extension.
-
+  - Clangd is also available in conda: [clangdev](https://anaconda.org/conda-forge/clangdev)
   - Create Clangd configuration file for both global and project-specific settings. The global configuration file is located at `~/.config/clangd/config.yaml`. The project-specific configuration file is the `.clangd` file in the project root directory.
-
   - Here is an example of my global config
     ```yaml
     CompileFlags:
@@ -70,7 +88,7 @@ This repo assumes that you have basic knowledge of the following:
           - -I/home/zz7522/Projects/mase-cuda/submodules/cutlass/examples/common/
           - -I/home/zz7522/Projects/mase-cuda/src/csrc/
           - -I/home/zz7522/Projects/mase-cuda/submodules/nlohmann_json/single_include/
-          - -I/home/zz7522/Projects/mase-cuda/submodules/libtorch/include/
-          - -I/home/zz7522/Projects/mase-cuda/submodules/libtorch/include/torch/csrc/api/include/
+          - -I/mnt/data/zz7522/miniconda/envs/mase-cuda/lib/python3.11/site-packages/torch/include/
+          - -I/mnt/data/zz7522/miniconda/envs/mase-cuda/lib/python3.11/site-packages/torch/include/torch/csrc/api/include/
           - -I/mnt/data/zz7522/miniconda/envs/mase-cuda/include/python3.11/
     ```

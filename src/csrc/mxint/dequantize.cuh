@@ -3,6 +3,7 @@
 #include "cute/arch/copy_sm80.hpp"
 #include "cute/config.hpp"
 #include "cute/pointer.hpp"
+#include <ATen/cuda/CUDAContext.h>
 #include <cassert>
 #include <cstdint>
 #include <cute/layout.hpp>
@@ -157,6 +158,8 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
         auto shape_scale = make_shape(num_groups);
         auto stride_scale = make_stride(Int<1>{});
         auto group_tiler = make_shape(group_size);
+        auto device = x.get_device();
+        cudaStream_t stream = at::cuda::getCurrentCUDAStream(device);
 
         if (group_size <= 8) {
             auto BLK_M = Int<8>{};
@@ -169,9 +172,9 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
             auto layout_tX = make_layout(make_shape(thd_m, thd_k));
             dim3 dimBlock(size(layout_tX));
             dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
-            dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
-                                                             stride_scale, group_tiler, cta_tiler, layout_sX,
-                                                             layout_sScale, layout_tX, y_ptr);
+            dequantize1d_device<<<dimGrid, dimBlock, 0, stream>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
+                                                                  stride_scale, group_tiler, cta_tiler, layout_sX,
+                                                                  layout_sScale, layout_tX, y_ptr);
         } else if (group_size <= 16) {
             auto BLK_M = Int<16>{};
             auto BLK_K = Int<64>{};
@@ -183,9 +186,9 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
             auto layout_tX = make_layout(make_shape(thd_m, thd_k));
             dim3 dimBlock(size(layout_tX));
             dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
-            dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
-                                                             stride_scale, group_tiler, cta_tiler, layout_sX,
-                                                             layout_sScale, layout_tX, y_ptr);
+            dequantize1d_device<<<dimGrid, dimBlock, 0, stream>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
+                                                                  stride_scale, group_tiler, cta_tiler, layout_sX,
+                                                                  layout_sScale, layout_tX, y_ptr);
         } else if (group_size <= 32) {
             auto BLK_M = Int<32>{};
             auto BLK_K = Int<32>{};
@@ -197,9 +200,9 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
             auto layout_tX = make_layout(make_shape(thd_m, thd_k));
             dim3 dimBlock(size(layout_tX));
             dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
-            dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
-                                                             stride_scale, group_tiler, cta_tiler, layout_sX,
-                                                             layout_sScale, layout_tX, y_ptr);
+            dequantize1d_device<<<dimGrid, dimBlock, 0, stream>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
+                                                                  stride_scale, group_tiler, cta_tiler, layout_sX,
+                                                                  layout_sScale, layout_tX, y_ptr);
         } else if (group_size <= 64) {
             auto BLK_M = Int<64>{};
             auto BLK_K = Int<16>{};
@@ -211,9 +214,9 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
             auto layout_tX = make_layout(make_shape(thd_m, thd_k));
             dim3 dimBlock(size(layout_tX));
             dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
-            dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
-                                                             stride_scale, group_tiler, cta_tiler, layout_sX,
-                                                             layout_sScale, layout_tX, y_ptr);
+            dequantize1d_device<<<dimGrid, dimBlock, 0, stream>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
+                                                                  stride_scale, group_tiler, cta_tiler, layout_sX,
+                                                                  layout_sScale, layout_tX, y_ptr);
         } else if (group_size <= 128) {
             auto BLK_M = Int<128>{};
             auto BLK_K = Int<8>{};
@@ -225,9 +228,9 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
             auto layout_tX = make_layout(make_shape(thd_m, thd_k));
             dim3 dimBlock(size(layout_tX));
             dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
-            dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
-                                                             stride_scale, group_tiler, cta_tiler, layout_sX,
-                                                             layout_sScale, layout_tX, y_ptr);
+            dequantize1d_device<<<dimGrid, dimBlock, 0, stream>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
+                                                                  stride_scale, group_tiler, cta_tiler, layout_sX,
+                                                                  layout_sScale, layout_tX, y_ptr);
         } else {
             // 256, 512, 1024
             auto BLK_M = Int<128>{};
@@ -240,9 +243,9 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
             auto layout_tX = make_layout(make_shape(thd_m, thd_k));
             dim3 dimBlock(size(layout_tX));
             dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
-            dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
-                                                             stride_scale, group_tiler, cta_tiler, layout_sX,
-                                                             layout_sScale, layout_tX, y_ptr);
+            dequantize1d_device<<<dimGrid, dimBlock, 0, stream>>>(x_ptr, shape_x, stride_x, scales_ptr, shape_scale,
+                                                                  stride_scale, group_tiler, cta_tiler, layout_sX,
+                                                                  layout_sScale, layout_tX, y_ptr);
         }
     } else {
         throw std::invalid_argument("x must be on CPU or CUDA");
