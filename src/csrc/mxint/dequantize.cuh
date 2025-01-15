@@ -144,11 +144,9 @@ __global__ static void dequantize1d_device(TypeX const *x, ShapeX shape_x, Strid
 
 torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int group_size) {
     using namespace cute;
-    const int legal_group_sizes[] = {8, 16, 32, 64, 128, 256, 512, 1024};
-    std::set<int> group_sizes(legal_group_sizes,
-                              legal_group_sizes + sizeof(legal_group_sizes) / sizeof(legal_group_sizes[0]));
-    if (group_sizes.find(group_size) == group_sizes.end()) {
-        throw std::invalid_argument("group_size must be one of {16, 32, 64, 128, 256, 512, 1024}");
+
+    if (group_size <= 0) {
+        throw std::invalid_argument("group_size must be positive");
     }
     const int m = x.numel() * x.itemsize() / sizeof(uint8_t);
     const int num_groups = m / group_size;
@@ -251,7 +249,7 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
                                                                   stride_scale, group_tiler, cta_tiler, layout_sX,
                                                                   layout_sScale, layout_tX, y_ptr);
         } else {
-            // 256, 512, 1024
+            // larger group sizes
             auto BLK_M = Int<128>{};
             auto BLK_K = Int<8>{};
             auto thd_m = BLK_M;
