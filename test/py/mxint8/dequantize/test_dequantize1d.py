@@ -8,7 +8,7 @@ import ml_dtypes
 import torch
 from mase_cuda.constants import MASE_CUDA_ROOT_PATH
 
-from mase_cuda.mxint8.dequantize import dequantize1d_fast
+from mase_cuda.mxint8.dequantize import dequantize1d
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def test_ext_dequantize1d():
                 scales_dup = scales.repeat_interleave(group_size)
 
                 # view as uint16 to avoid NaN comparison
-                out_cpu = dequantize1d_fast(x, scales, group_size)
+                out_cpu = dequantize1d(x, scales, group_size)
                 out_ref = dequantize1d_fake_pt(x, scales, group_size)
 
                 # find mismatch idx
@@ -80,7 +80,7 @@ def test_ext_dequantize1d():
                     logger.error(f"out_cpu[mismatch_idx]: {out_cpu[mismatch_idx]}")
                     logger.error(f"out_ref[mismatch_idx]: {out_ref[mismatch_idx]}")
 
-                out_gpu = dequantize1d_fast(x.cuda(), scales.cuda(), group_size).cpu()
+                out_gpu = dequantize1d(x.cuda(), scales.cuda(), group_size).cpu()
 
                 if not torch.equal(out_gpu, out_ref):
                     mismatch_idx = torch.where(torch.logical_not(torch.eq(out_gpu, out_ref)))
@@ -114,7 +114,7 @@ def test_ext_dequantize1d_latency():
             # cpu
             start = time.time()
             for _ in range(n_repeats):
-                out_cpu = dequantize1d_fast(x, scales, group_size)
+                out_cpu = dequantize1d(x, scales, group_size)
             end = time.time()
             latency_cpu = (end - start) / n_repeats  # s
 
@@ -125,7 +125,7 @@ def test_ext_dequantize1d_latency():
             end_events = [torch.cuda.Event(enable_timing=True) for _ in range(n_repeats)]
             for i in range(n_repeats):
                 start_events[i].record()
-                out_gpu = dequantize1d_fast(x, scales, group_size)
+                out_gpu = dequantize1d(x, scales, group_size)
                 end_events[i].record()
             torch.cuda.synchronize()
             latencies_gpu = [start_events[i].elapsed_time(end_events[i]) for i in range(n_repeats)]

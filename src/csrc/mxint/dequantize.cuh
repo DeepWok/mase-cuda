@@ -3,8 +3,6 @@
 #include "cute/arch/copy_sm80.hpp"
 #include "cute/config.hpp"
 #include "cute/pointer.hpp"
-#include "cutlass/fast_math.h"
-#include "torch/types.h"
 #include <cassert>
 #include <cstdint>
 #include <cute/layout.hpp>
@@ -18,7 +16,7 @@
 
 namespace mase_cuda {
 namespace mxint8 {
-namespace dequantize_fast {
+namespace dequantize {
 template <class TypeX, class TypeScale>
 __host__ void dequantize1d_host(TypeX const *x, const int M, TypeScale const *scales, const int group_size,
                                 cutlass::bfloat16_t *y) {
@@ -122,9 +120,6 @@ __global__ static void dequantize1d_device(TypeX const *x, ShapeX shape_x, Strid
     for (int i = 0; i < size(tXrY); ++i) {
         tXgY[i] = tXrY[i];
     }
-
-    cp_async_fence();
-    cp_async_wait<0>();
 }
 
 torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int group_size) {
@@ -256,6 +251,6 @@ torch::Tensor dequantize1d(torch::Tensor x, torch::Tensor scales, const int grou
     y = y.reshape_as(x);
     return y;
 }
-} // namespace dequantize_fast
+} // namespace dequantize
 } // namespace mxint8
 } // namespace mase_cuda

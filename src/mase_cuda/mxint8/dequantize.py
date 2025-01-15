@@ -6,7 +6,7 @@ def dequantize1d_slow(input: torch.Tensor, scale: torch.Tensor, group_size: int)
     return mase_cuda_ext.mxint8.dequantize1d_slow(input, scale, group_size)
 
 
-def dequantize1d_fast(input: torch.Tensor, scale: torch.Tensor, group_size: int) -> torch.Tensor:
+def dequantize1d(input: torch.Tensor, scale: torch.Tensor, group_size: int) -> torch.Tensor:
     """Dequantize a 1D input tensor using the given scale tensor and group size.
 
     :param input: Int8 input mantissa tensor
@@ -36,12 +36,12 @@ def dequantize1d_fast(input: torch.Tensor, scale: torch.Tensor, group_size: int)
         for i in range(num_chunks):
             x_chunk = input[i * chunk_size : (i + 1) * chunk_size]
             scale_chunk = scale[i * chunk_size // group_size : (i + 1) * chunk_size // group_size]
-            y_chunk = mase_cuda_ext.mxint8.dequantize1d_fast(x_chunk, scale_chunk, group_size)
+            y_chunk = mase_cuda_ext.mxint8.dequantize1d(x_chunk, scale_chunk, group_size)
             chunks.append(y_chunk)
         output = torch.cat(chunks)
         output = output.reshape(ori_shape)
         input = input.reshape(ori_shape)
     else:
-        output = mase_cuda_ext.mxint8.dequantize1d_fast(input, scale, group_size)
+        output = mase_cuda_ext.mxint8.dequantize1d(input, scale, group_size)
 
     return output

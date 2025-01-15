@@ -1,6 +1,7 @@
-#include "c10/core/DeviceType.h"
 #include "c10/core/ScalarType.h"
 #include "c10/core/TensorOptions.h"
+#include "cute/pointer.hpp"
+#include "cute/pointer_flagged.hpp"
 #include "torch/types.h"
 #include <cassert>
 #include <cstdint>
@@ -15,6 +16,24 @@
 namespace mase_cuda {
 namespace mxint8 {
 namespace dequantize_slow {
+template <class TypeX, class TypeScale>
+__host__ void dequantize1d_host(TypeX const *x, const int M, TypeScale const *scales, const int group_size,
+                                cutlass::bfloat16_t *y) {
+    assert(M % group_size == 0);
+
+    const int num_groups = M / group_size;
+    uint8_t const *x_raw_uint8 = reinterpret_cast<uint8_t const *>(x);
+    uint8_t const *scales_raw_uint8 = reinterpret_cast<uint8_t const *>(scales);
+    thrust::host_vector<uint8_t> hX(x_raw_uint8, x_raw_uint8 + M);
+    thrust::host_vector<uint8_t> hScales(scales_raw_uint8, scales_raw_uint8 + num_groups);
+
+    for (int i = 0; i < M; ++i) {
+        auto sign = static_cast<uint16_t>(hX[i] & 0x80) << 8;
+        auto exp = static_cast<uint16_t>(hScales[i / group_size]) << 7;
+        auto mantissa = static_cast<uint16_t>((hX[i] << 1) & 0x7E);
+        y[i] = cutlass::bfloat16_t::bitcast(sign | exp | mantissa);
+    }
+}
 template <class TypeX,                              // input type
           class ShapeX,                             // input/output shape
           class StrideX,                            // input/output stride
@@ -55,9 +74,8 @@ __global__ static void dequantize1d_device(TypeX const *x, ShapeX shape_x, Strid
     Tensor mX = flatten(flat_divide(mX_raw, group_tiler));
     // scale tensor in global memory, shape: (num_groups): (1)
     Tensor vScale = make_tensor(make_gmem_ptr(scales_raw_uint8), shape_scale, stride_scale);
-    Tensor mY_raw = make_tensor(make_gmem_ptr(y), shape_x, stride_x); // (M)
     // (_group_size, num_groups): (_1, _group_size)
-    Tensor mY = flatten(flat_divide(mY_raw, group_tiler));
+    Tensor mY = make_tensor(make_gmem_ptr(y), shape(mX), stride(mX));
 
     // get the appropriate block for this thread block
     auto cta_coord = make_coord(blockIdx.x, _);
@@ -116,25 +134,6 @@ __global__ static void dequantize1d_device(TypeX const *x, ShapeX shape_x, Strid
         for (int i = 0; i < size(tXrY); ++i) {
             tXgYk[i] = tXrY[i];
         }
-    }
-}
-
-template <class TypeX, class TypeScale>
-__host__ void dequantize1d_host(TypeX const *x, const int M, TypeScale const *scales, const int group_size,
-                                cutlass::bfloat16_t *y) {
-    assert(M % group_size == 0);
-
-    const int num_groups = M / group_size;
-    uint8_t const *x_raw_uint8 = reinterpret_cast<uint8_t const *>(x);
-    uint8_t const *scales_raw_uint8 = reinterpret_cast<uint8_t const *>(scales);
-    thrust::host_vector<uint8_t> hX(x_raw_uint8, x_raw_uint8 + M);
-    thrust::host_vector<uint8_t> hScales(scales_raw_uint8, scales_raw_uint8 + num_groups);
-
-    for (int i = 0; i < M; ++i) {
-        auto sign = static_cast<uint16_t>(hX[i] & 0x80) << 8;
-        auto exp = static_cast<uint16_t>(hScales[i / group_size]) << 7;
-        auto mantissa = static_cast<uint16_t>((hX[i] << 1) & 0x7E);
-        y[i] = cutlass::bfloat16_t::bitcast(sign | exp | mantissa);
     }
 }
 

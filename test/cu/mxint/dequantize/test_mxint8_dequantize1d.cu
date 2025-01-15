@@ -1,14 +1,12 @@
 #include "cute/int_tuple.hpp"
-#include "mxint/dequantize_fast.cuh"
+#include "mxint/dequantize.cuh"
 #include <cassert>
-#include <cstdint>
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 #include <cute/layout.hpp>
 #include <cute/numeric/integral_constant.hpp>
 #include <cute/numeric/numeric_types.hpp>
 #include <cutlass/bfloat16.h>
-#include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <thrust/device_vector.h>
@@ -64,7 +62,7 @@ int main(int argc, char **argv) {
     }
 
     // CPU implementation
-    mase_cuda::mxint8::dequantize_fast::dequantize1d_host(x_h.data(), m, scales_h.data(), group_size, y_ref_h.data());
+    mase_cuda::mxint8::dequantize::dequantize1d_host(x_h.data(), m, scales_h.data(), group_size, y_ref_h.data());
 
     // GPU implementation
     auto BLK_M = Int<32>{};
@@ -90,7 +88,7 @@ int main(int argc, char **argv) {
 
     dim3 dimBlock(size(layout_tX));
     dim3 dimGrid(ceil_div(group_size, BLK_M), ceil_div(num_groups, BLK_K));
-    mase_cuda::mxint8::dequantize_fast::dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(
+    mase_cuda::mxint8::dequantize::dequantize1d_device<<<dimGrid, dimBlock, 0, 0>>>(
         x_d.data().get(), shape_x, stride_x, scales_d.data().get(), shape_scale, stride_scale, group_tiler, cta_tiler,
         layout_sX, layout_sScale, layout_tX, y_d.data().get());
 
