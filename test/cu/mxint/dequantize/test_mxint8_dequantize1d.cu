@@ -38,6 +38,10 @@ int main(int argc, char **argv) {
         is_random = bool(atoi(argv[3]));
     }
 
+    std::cout << "Usage: " << argv[0] << " [m] [group_size] [is_random]" << std::endl;
+    std::cout << "m=" << m << ", group_size=" << group_size << ", num_groups=" << num_groups
+              << ", is_random=" << is_random << std::endl;
+
     // initialize data
     thrust::host_vector<uint8_t> x_h(m);
     thrust::host_vector<uint8_t> scales_h(num_groups);

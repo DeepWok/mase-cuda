@@ -39,10 +39,10 @@ build-py: clean
     TORCH_CUDA_ARCH_LIST="{{TORCH_CUDA_ARCH_LIST}}" MAX_JOBS={{NINJA_MAX_JOBS}} tox -e build
 
 test-py-fast:
-    TORCH_CUDA_ARCH_LIST="{{TORCH_CUDA_ARCH_LIST}}" MAX_JOBS={{NINJA_MAX_JOBS}} tox r -e py311 -- -v -m "not slow"
+    TORCH_CUDA_ARCH_LIST="{{TORCH_CUDA_ARCH_LIST}}" MAX_JOBS={{NINJA_MAX_JOBS}} tox r -e py311 -- -v -m "not slow" --durations=0
 
 test-py-slow:
-    TORCH_CUDA_ARCH_LIST="{{TORCH_CUDA_ARCH_LIST}}" MAX_JOBS={{NINJA_MAX_JOBS}} tox r -e py311 -- -v --log-cli-level INFO -m "slow"
+    TORCH_CUDA_ARCH_LIST="{{TORCH_CUDA_ARCH_LIST}}" MAX_JOBS={{NINJA_MAX_JOBS}} tox r -e py311 -- -v --log-cli-level INFO -m "slow" --durations=0
 
 test-py:
     TORCH_CUDA_ARCH_LIST="{{TORCH_CUDA_ARCH_LIST}}" MAX_JOBS={{NINJA_MAX_JOBS}} tox r -e py311 -- -v --log-cli-level INFO
