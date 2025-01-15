@@ -45,6 +45,7 @@ just build-cu-profile
 - Build `test_mxint8_dequantize1d_fast` for debug and launch cuda-gdb for debugging
   ```bash
   just --set CU_BUILD_TARGETS test_mxint8_dequantize1d_fast build-cu-test-debug
+
   cuda-gdb --args ./build/test/cu/mxint/dequantize/test_mxint8_dequantize1d_fast  30000 30
   ```
 
